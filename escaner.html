@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0f172a">
+<link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Escáner del socio</title>
+<style>
+body{font-family:system-ui;background:#0f172a;color:#fff;margin:0;padding:12px;text-align:center}
+video{width:100%;max-width:480px;border-radius:12px;background:#000}
+button{font-size:18px;padding:14px 20px;border-radius:12px;border:0;background:#2563eb;color:#fff;margin:8px}
+#resultado{margin:12px auto;max-width:480px;padding:16px;border-radius:12px;font-size:22px;font-weight:700;display:none}
+.ok{background:#16a34a}.no{background:#dc2626}
+#diag{font-size:13px;text-align:left;max-width:480px;margin:12px auto;background:#1e293b;padding:10px;border-radius:8px;white-space:pre-wrap}
+label{font-size:16px}
+</style></head><body>
+<h2>Escáner del socio</h2>
+<video id="video" playsinline muted></video>
+<canvas id="canvas" style="display:none"></canvas>
+<div><button id="iniciar">Abrir cámara</button></div>
+<label><input type="checkbox" id="vencida"> Simular cuota vencida</label>
+<div id="resultado"></div>
+<div id="diag"></div>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+const $ = (id)=>document.getElementById(id);
+const video=$('video'), canvas=$('canvas'), c2d=canvas.getContext('2d',{willReadFrequently:true});
+const usados=new Set();
+let corriendo=false, t0=0, pausadoHasta=0, ultimo={};
+let ctx=null;
+
+function beep(n){
+  try{
+    ctx = ctx || new (window.AudioContext||window.webkitAudioContext)();
+    for(let i=0;i<n;i++){
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.frequency.value=880; o.connect(g); g.connect(ctx.destination);
+      const t=ctx.currentTime+i*0.28;
+      g.gain.setValueAtTime(0.4,t); g.gain.setValueAtTime(0,t+0.18);
+      o.start(t); o.stop(t+0.2);
+    }
+  }catch(e){}
+}
+function diag(){
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+  $('diag').textContent =
+    'Instalada (standalone): ' + (standalone?'SÍ':'no') + '\n' +
+    'HTTPS: ' + (location.protocol==='https:'?'SÍ':'NO') + '\n' +
+    'Último tiempo hasta leer: ' + (ultimo.ms??'-') + ' ms\n' +
+    'Diferencia de reloj con la pantalla: ' + (ultimo.skew??'-') + ' ms\n' +
+    'Aperturas de cámara en esta sesión: ' + (window.__aperturas||0) + '\n' +
+    navigator.userAgent;
+}
+function mostrar(ok, texto){
+  const r=$('resultado'); r.style.display='block';
+  r.className = ok?'ok':'no'; r.textContent = (ok?'PERMITIDO — ':'DENEGADO — ') + texto;
+  if(ok){ beep(1); navigator.vibrate&&navigator.vibrate(100); }
+  else { beep(2); navigator.vibrate&&navigator.vibrate([200,100,200]); }
+}
+function procesar(texto){
+  const m = /^GC1\|(\d+)$/.exec(texto);
+  if(!m) return mostrar(false,'QR no reconocido');
+  const ts = Number(m[1]); const skew = Date.now()-ts;
+  ultimo = {ms: Math.round(performance.now()-t0), skew};
+  if(usados.has(ts)) return mostrar(false,'QR ya usado');
+  if(Math.abs(skew) > 15000) return mostrar(false,'QR vencido (esperá el siguiente)');
+  usados.add(ts);
+  if($('vencida').checked) return mostrar(false,'cuota vencida');
+  mostrar(true,'bienvenido');
+}
+function bucle(){
+  if(!corriendo) return;
+  if(video.readyState===video.HAVE_ENOUGH_DATA && performance.now()>pausadoHasta){
+    const w=Math.min(video.videoWidth,720), h=Math.round(video.videoHeight*w/video.videoWidth);
+    canvas.width=w; canvas.height=h;
+    c2d.drawImage(video,0,0,w,h);
+    const img=c2d.getImageData(0,0,w,h);
+    const code=jsQR(img.data,w,h,{inversionAttempts:'dontInvert'});
+    if(code && code.data){
+      procesar(code.data); diag();
+      pausadoHasta=performance.now()+3000; t0=pausadoHasta;
+    }
+  }
+  requestAnimationFrame(bucle);
+}
+$('iniciar').onclick = async ()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1280}}, audio:false});
+    window.__aperturas=(window.__aperturas||0)+1;
+    video.srcObject=stream; await video.play();
+    ctx = ctx || new (window.AudioContext||window.webkitAudioContext)(); ctx.resume();
+    corriendo=true; t0=performance.now(); bucle(); diag();
+    $('iniciar').style.display='none';
+  }catch(e){ $('diag').textContent='Error de cámara: '+e.name+' — '+e.message; }
+};
+diag();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script></body></html>

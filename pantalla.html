@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recepción - QR</title>
+<style>
+body{font-family:system-ui;background:#fff;color:#111;margin:0;padding:16px;text-align:center}
+#qr svg{width:min(70vmin,520px);height:auto}
+#barra{height:8px;background:#e5e7eb;border-radius:4px;max-width:520px;margin:12px auto;overflow:hidden}
+#progreso{height:100%;background:#2563eb;width:100%}
+button{font-size:18px;padding:12px 18px;margin:6px;border-radius:10px;border:0;background:#111;color:#fff}
+#estado{font-size:16px;color:#555}
+</style></head><body>
+<h2>Escaneá para registrar tu ingreso</h2>
+<div id="qr"></div>
+<div id="barra"><div id="progreso"></div></div>
+<div id="estado"></div>
+<p>
+<button id="sonido">Activar sonido</button>
+<button id="probar">Probar «pip pip»</button>
+</p>
+<small>Subí el brillo del monitor al máximo para la prueba.</small>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+const VIDA_MS = 10000;
+let ctx = null;
+function beep(n=2){
+  if(!ctx) return;
+  for(let i=0;i<n;i++){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.frequency.value=880; o.connect(g); g.connect(ctx.destination);
+    const t=ctx.currentTime + i*0.28;
+    g.gain.setValueAtTime(0.4,t); g.gain.setValueAtTime(0,t+0.18);
+    o.start(t); o.stop(t+0.2);
+  }
+}
+document.getElementById('sonido').onclick=()=>{
+  ctx = ctx || new (window.AudioContext||window.webkitAudioContext)();
+  ctx.resume(); beep(1);
+  document.getElementById('estado').textContent='Sonido activado';
+};
+document.getElementById('probar').onclick=()=>beep(2);
+
+function dibujar(){
+  const token = 'GC1|' + Date.now();
+  const qr = qrcode(0,'M'); qr.addData(token); qr.make();
+  document.getElementById('qr').innerHTML = qr.createSvgTag({cellSize:8, margin:4, scalable:true});
+  const p=document.getElementById('progreso');
+  p.style.transition='none'; p.style.width='100%';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    p.style.transition='width '+VIDA_MS+'ms linear'; p.style.width='0%';
+  }));
+}
+dibujar(); setInterval(dibujar, VIDA_MS);
+</script></body></html>
